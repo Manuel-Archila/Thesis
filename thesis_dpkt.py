@@ -1,6 +1,5 @@
 import dpkt
 import socket
-import pandas as pd
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import requests
@@ -77,13 +76,13 @@ def mostrar_resultados(ip_communication, syn_packets, dns_requests, large_data_t
     # Mostrar patrones de beaconing
     print("\n=== Detección de Beaconing ===")
     for ip, count in ip_communication.items():
-        if count > 50:  # Ajustar umbral según el contexto
+        if count > 60:  # Ajustar umbral según el contexto
             print(f"Patrón de beaconing detectado hacia IP: {ip} con {count} solicitudes")
 
     print("\n=== Escaneo de Puertos Detectado ===")
     for src_ip, dst_dict in syn_packets.items():
         for dst_ip, count in dst_dict.items():
-            if count > 10:  # Umbral de paquetes SYN para considerar un escaneo
+            if count > 20:  # Umbral de paquetes SYN para considerar un escaneo
                 print(f"IP Origen: {src_ip} está escaneando IP Destino: {dst_ip} con {count} paquetes SYN")
 
 
@@ -104,18 +103,19 @@ def graficar_comunicaciones(ip_communication):
     ips = list(ip_communication.keys())
     counts = list(ip_communication.values())
 
-    plt.figure(figsize=(15, 5))
+    plt.figure(figsize=(15, 6))
     plt.bar(ips, counts, color='skyblue')
     plt.xlabel('IPs Destino')
     plt.ylabel('Número de Solicitudes')
     plt.title('Número de Solicitudes por IP')
-    plt.xticks(rotation=90)
+    plt.xticks(rotation=90, fontsize=8)
+    plt.tight_layout()
     plt.show()
 
 # ================== PASO 5: Generar reporte final ==================
 def generar_reporte(
 ip_communication, dns_requests, large_data_transfers, 
-umbral_beaconing=50, umbral_dns=5, umbral_transferencia=1000):
+umbral_beaconing=250, umbral_dns=5, umbral_transferencia=1750):
     with open('reporte.txt', 'w') as f:
         f.write("=== Reporte de Análisis Forense de Red ===")
         f.write("\n=== Resumen Final del Análisis ===")
@@ -202,11 +202,18 @@ def analizar_tiempos_sesiones(pcap):
             print(f"Conexión entre {src_ip} y {dst_ip} tiene intervalos: {intervalos}")
 
 # ================== Detección de Strings Sospechosos en el Payload ==================
+from tabulate import tabulate
+import dpkt
+import socket
+
 def detectar_strings_sospechosos(
     pcap, 
-    keywords=['password', 'admin', 'login', 'root', 'confidential', 'secret', 'access key', 'access', 'credential']
+    keywords=['password', 'admin', 'login', 'root', 'confidential', 'secret', 'access key', 'access', 'credential'],
+    archivo_salida='strings_sospechosos.txt'
 ):
-    """Detectar strings sospechosos en el payload de los paquetes y mostrar el contenido completo"""
+    """Detectar strings sospechosos en el payload y guardarlos en un archivo en formato tabulado."""
+    resultados = []  # Lista para almacenar resultados en forma de tabla
+
     for timestamp, buf in pcap:
         eth = dpkt.ethernet.Ethernet(buf)
         if isinstance(eth.data, dpkt.ip.IP):
@@ -215,15 +222,28 @@ def detectar_strings_sospechosos(
                 tcp = ip.data
                 payload = tcp.data.decode('latin1', errors='replace')  # Decodificar el payload
 
-                with open('payload.txt', 'w', encoding='latin-1') as f:
-                    for keyword in keywords:
-                        if keyword in payload:
-                            src_ip = socket.inet_ntoa(ip.src)
-                            dst_ip = socket.inet_ntoa(ip.dst)
-                            f.write(f"\n=== String sospechoso '{keyword}' detectado ===")
-                            f.write(f"De: {src_ip} -> A: {dst_ip}")
-                            f.write(f"Payload completo:\n{payload}")
-                            f.write("=" * 50)
+                for keyword in keywords:
+                    if keyword in payload:
+                        src_ip = socket.inet_ntoa(ip.src)
+                        dst_ip = socket.inet_ntoa(ip.dst)
+                        resultados.append([src_ip, dst_ip, keyword, payload])
+
+    # Verificar si se encontraron resultados
+    if resultados:
+        # Preparar la tabla con encabezados
+        tabla = [["IP Origen", "IP Destino", "Palabra Clave", "Payload"]]
+        tabla.extend(resultados)
+
+        # Escribir los resultados en el archivo en formato tabulado
+        with open(archivo_salida, 'w', encoding='latin-1') as f:
+            f.write("=== Strings Sospechosos Detectados ===\n\n")
+            f.write(tabulate(tabla, headers="firstrow", tablefmt="grid"))
+        
+        print(f"Análisis completado. Los resultados se han guardado en '{archivo_salida}'.")
+    else:
+        print("No se encontraron strings sospechosos.")
+
+
 
 
 
@@ -237,26 +257,74 @@ def geolocalizar_ips(ip_addresses):
             data = response.json()
             print(f"IP: {ip}, Ubicación: {data.get('city', 'Desconocido')}, {data.get('country', 'Desconocido')}")
 
-def analizar_puertos_por_ip(pcap):
-    """Analizar los puertos destino por cada IP origen en el archivo PCAP."""
-    puertos_por_ip = defaultdict(lambda: defaultdict(int))  # {src_ip: {puerto: count}}
+from tabulate import tabulate
+from collections import defaultdict
+import dpkt
+import socket
+
+def analizar_puertos_por_ip(pcap, archivo_salida='analisis_puertos.txt'):
+    """Analizar los puertos destino por cada IP origen y destino en el archivo PCAP."""
+    puertos_por_ip = defaultdict(lambda: defaultdict(lambda: defaultdict(int)))  
+    # Estructura: {src_ip: {dst_ip: {puerto: count}}}
 
     for timestamp, buf in pcap:
         eth = dpkt.ethernet.Ethernet(buf)
         if isinstance(eth.data, dpkt.ip.IP):
             ip = eth.data
             src_ip = socket.inet_ntoa(ip.src)
+            dst_ip = socket.inet_ntoa(ip.dst)
 
             # Si el paquete es TCP, analizamos el puerto destino
             if isinstance(ip.data, dpkt.tcp.TCP):
                 tcp = ip.data
-                puertos_por_ip[src_ip][tcp.dport] += 1
+                puertos_por_ip[src_ip][dst_ip][tcp.dport] += 1
+
+    # Preparar los datos en forma de tabla
+    tabla = []
+    tabla.append(["IP Origen", "IP Destino", "Puerto", "Solicitudes"])
     
-    print("\n=== Análisis de Puertos por IP ===")
-    for ip, puertos in puertos_por_ip.items():
-        print(f"\nIP Origen: {ip}")
-        for puerto, count in puertos.items():
-            print(f"  Puerto {puerto}: {count} solicitudes")
+    for src_ip, dst_data in puertos_por_ip.items():
+        for dst_ip, puertos in dst_data.items():
+            for puerto, count in puertos.items():
+                tabla.append([src_ip, dst_ip, puerto, count])
+
+    # Escribir los resultados en el archivo de texto con formato de tabla
+    with open(archivo_salida, 'w') as f:
+        f.write("=== Análisis de Puertos por IP ===\n\n")
+        f.write(tabulate(tabla, headers="firstrow", tablefmt="grid"))
+
+    print(f"Análisis completado. Los resultados se han guardado en '{archivo_salida}'.")
+
+def analizar_large_data_transfers(pcap, archivo_salida='large_data_transfers.txt', umbral=1000):
+    """Analizar las transferencias grandes de datos entre IPs y guardarlas en un archivo tabulado."""
+    transferencias = defaultdict(lambda: defaultdict(int))  # Estructura: {src_ip: {dst_ip: total_bytes}}
+
+    # Leer los paquetes y registrar transferencias grandes
+    for timestamp, buf in pcap:
+        eth = dpkt.ethernet.Ethernet(buf)
+        if isinstance(eth.data, dpkt.ip.IP):
+            ip = eth.data
+            src_ip = socket.inet_ntoa(ip.src)
+            dst_ip = socket.inet_ntoa(ip.dst)
+
+            if isinstance(ip.data, dpkt.tcp.TCP):
+                tcp = ip.data
+                data_size = len(tcp.data)
+                if data_size > umbral:  # Registrar si supera el umbral
+                    transferencias[src_ip][dst_ip] += data_size
+
+    # Preparar los datos en forma de tabla
+    tabla = [["IP Origen", "IP Destino", "Bytes Transferidos"]]
+    for src_ip, dst_dict in transferencias.items():
+        for dst_ip, total_bytes in dst_dict.items():
+            tabla.append([src_ip, dst_ip, total_bytes])
+
+    # Escribir la tabla en el archivo de texto
+    with open(archivo_salida, 'w') as f:
+        f.write("=== Transferencias Grandes de Datos ===\n\n")
+        f.write(tabulate(tabla, headers="firstrow", tablefmt="grid"))
+
+    print(f"Análisis completado. Los resultados se han guardado en '{archivo_salida}'.")
 
 
 
@@ -296,6 +364,10 @@ with open(ruta_archivo, 'rb') as f:
 
     ip_list = list(ip_communication.keys())
     geolocalizar_ips(ip_list)
+
+    f.seek(0)
+    pcap = dpkt.pcap.Reader(f)
+    analizar_large_data_transfers(pcap)
 
 # ================== Graficar SYN packets por IP ==================
 def graficar_syn_packets(syn_packets):
