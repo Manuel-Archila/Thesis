@@ -32,7 +32,7 @@ Este proyecto implementa un conjunto de herramientas para realizar un análisis 
    cd Thesis
    ```
 
-2. Crear y activar un entorno virtual (opcional pero recomendado):
+2. Crear y activar un entorno virtual:
 
    ```bash
    python3 -m venv venv
