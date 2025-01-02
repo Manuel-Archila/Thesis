@@ -1,2 +1,0 @@
-Hash SHA-256 del archivo ./c1.pcap:
-bc4913e7823995dc6fcfeeeb1450ee391aa91b44af2bd09da4e93f79b681a4c4

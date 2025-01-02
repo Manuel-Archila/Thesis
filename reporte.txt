@@ -1,5 +1,0 @@
-=== Reporte de Análisis Forense de Red ===
-=== Resumen Final del Análisis ===
-IPs detectadas con patrones de beaconing (>250 solicitudes): 5
-Solicitudes DNS sospechosas (>5 peticiones): 0
-IPs con grandes transferencias de datos (>1750 bytes): 35
