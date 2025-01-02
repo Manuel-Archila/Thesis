@@ -105,7 +105,7 @@ def graficar_comunicaciones(ip_communication):
 
     plt.figure(figsize=(15, 6))
     plt.bar(ips, counts, color='skyblue')
-    plt.xlabel('IPs Destino')
+    plt.xlabel('IPs Origen')
     plt.ylabel('Número de Solicitudes')
     plt.title('Número de Solicitudes por IP')
     plt.xticks(rotation=90, fontsize=8)
@@ -169,21 +169,8 @@ def detectar_trafico_tls(pcap):
         print(f"IP: {ip} tiene {count} conexiones TLS detectadas")
 
 # ================== Análisis de Ataques de Red Comunes ==================
-def detectar_arp_spoofing(pcap):
-    """Detectar ataques de ARP Spoofing en el archivo PCAP"""
-    arp_table = defaultdict(set)
-    for timestamp, buf in pcap:
-        eth = dpkt.ethernet.Ethernet(buf)
-        if isinstance(eth.data, dpkt.arp.ARP):
-            arp = eth.data
-            arp_table[arp.spa].add(arp.sha)
 
-    print("\n=== Detección de ARP Spoofing ===")
-    for ip, macs in arp_table.items():
-        if len(macs) > 1:
-            print(f"ARP Spoofing detectado: IP {ip} tiene {len(macs)} MACs asociadas: {macs}")
-
-# ================== Análisis de Tiempos y Sesiones ==================
+## ================== Análisis de Tiempos y Sesiones ==================
 def analizar_tiempos_sesiones(pcap):
     """Analizar el tiempo de las sesiones y detectar patrones sospechosos"""
     sesion_tiempo = defaultdict(list)
@@ -295,11 +282,18 @@ def analizar_puertos_por_ip(pcap, archivo_salida='analisis_puertos.txt'):
 
     print(f"Análisis completado. Los resultados se han guardado en '{archivo_salida}'.")
 
-def analizar_large_data_transfers(pcap, archivo_salida='large_data_transfers.txt', umbral=1000):
-    """Analizar las transferencias grandes de datos entre IPs y guardarlas en un archivo tabulado."""
-    transferencias = defaultdict(lambda: defaultdict(int))  # Estructura: {src_ip: {dst_ip: total_bytes}}
+import dpkt
+import socket
+from collections import defaultdict
+from tabulate import tabulate
 
-    # Leer los paquetes y registrar transferencias grandes
+def analizar_large_data_transfers(pcap, archivo_salida='large_data_transfers.txt', umbral=100000):
+    """Analizar las transferencias de datos entre IPs y guardar solo las que superen el umbral."""
+    
+    # Estructura: {src_ip: {dst_ip: total_bytes}}
+    transferencias = defaultdict(lambda: defaultdict(int))  
+
+    # Leer los paquetes y acumular transferencias
     for timestamp, buf in pcap:
         eth = dpkt.ethernet.Ethernet(buf)
         if isinstance(eth.data, dpkt.ip.IP):
@@ -310,21 +304,24 @@ def analizar_large_data_transfers(pcap, archivo_salida='large_data_transfers.txt
             if isinstance(ip.data, dpkt.tcp.TCP):
                 tcp = ip.data
                 data_size = len(tcp.data)
-                if data_size > umbral:  # Registrar si supera el umbral
-                    transferencias[src_ip][dst_ip] += data_size
+                transferencias[src_ip][dst_ip] += data_size  # Acumular bytes
 
-    # Preparar los datos en forma de tabla
+    # Preparar las transferencias que superan el umbral
     tabla = [["IP Origen", "IP Destino", "Bytes Transferidos"]]
     for src_ip, dst_dict in transferencias.items():
         for dst_ip, total_bytes in dst_dict.items():
-            tabla.append([src_ip, dst_ip, total_bytes])
+            if total_bytes > umbral:  # Solo escribir las que superen el umbral
+                tabla.append([src_ip, dst_ip, total_bytes])
 
-    # Escribir la tabla en el archivo de texto
-    with open(archivo_salida, 'w') as f:
-        f.write("=== Transferencias Grandes de Datos ===\n\n")
-        f.write(tabulate(tabla, headers="firstrow", tablefmt="grid"))
+    # Escribir la tabla en el archivo de texto solo si hay resultados
+    if len(tabla) > 1:
+        with open(archivo_salida, 'w') as f:
+            f.write("=== Transferencias Grandes de Datos ===\n\n")
+            f.write(tabulate(tabla, headers="firstrow", tablefmt="grid"))
+        print(f"Análisis completado. Los resultados se han guardado en '{archivo_salida}'.")
+    else:
+        print("No se encontraron transferencias grandes de datos que superen el umbral.")
 
-    print(f"Análisis completado. Los resultados se han guardado en '{archivo_salida}'.")
 
 
 
@@ -346,9 +343,6 @@ with open(ruta_archivo, 'rb') as f:
     pcap = dpkt.pcap.Reader(f)
     detectar_trafico_tls(pcap)
 
-    f.seek(0)
-    pcap = dpkt.pcap.Reader(f)
-    detectar_arp_spoofing(pcap)
 
     f.seek(0)
     pcap = dpkt.pcap.Reader(f)
@@ -358,12 +352,6 @@ with open(ruta_archivo, 'rb') as f:
     pcap = dpkt.pcap.Reader(f)
     detectar_strings_sospechosos(pcap)
 
-    f.seek(0)
-    pcap = dpkt.pcap.Reader(f)
-    analizar_puertos_por_ip(pcap)
-
-    ip_list = list(ip_communication.keys())
-    geolocalizar_ips(ip_list)
 
     f.seek(0)
     pcap = dpkt.pcap.Reader(f)
@@ -455,6 +443,6 @@ generar_reporte(ip_communication, dns_requests, large_data_transfers)
 
 graficar_syn_packets(syn_packets)  # Graficar los paquetes SYN por IP
 graficar_syn_pairs(syn_packets)  # Graficar los pares de SYN packets
-graficar_large_data_transfers(large_data_transfers)  # Graficar las transferencias de datos grandes
+#graficar_large_data_transfers(large_data_transfers)  # Graficar las transferencias de datos grandes
 graficar_dns_requests(dns_requests)  # Graficar las solicitudes DNS por dominio
-graficar_protocolos(protocolos_detectados)  # Graficar los protocolos detectados
+#graficar_protocolos(protocolos_detectados)  # Graficar los protocolos detectados
